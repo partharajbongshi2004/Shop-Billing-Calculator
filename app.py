@@ -4,249 +4,221 @@ import requests
 import calendar
 from datetime import datetime
 import pytz
-from database import (
-    get_product_by_code,
-    insert_sale,
-    get_sales_by_date_range,
-    delete_sale_by_id,
-)
+from database import get_product_by_code, insert_sale, get_sales_by_date_range, delete_sale_by_id
 
-# Page Configuration
-st.set_page_config(page_title="Multi-Shop POS System", page_icon="🛒", layout="wide")
+st.set_page_config(page_title="Multi-Shop POS", page_icon="🛒", layout="wide")
+st.session_state.setdefault("cart", [])
+st.session_state.setdefault("lang", "E")
 
-# Initialize Session State
-if "cart" not in st.session_state:
-    st.session_state.cart = []
-if "lang" not in st.session_state:
-    st.session_state.lang = "E"  # "E" = English, "P" = Português
+today_br = datetime.now(pytz.timezone("America/Sao_Paulo")).date()
+st.session_state.setdefault("f_start", today_br)
+st.session_state.setdefault("f_end", today_br)
 
-# Timezone & Default Date
-BRAZIL_TZ = pytz.timezone("America/Sao_Paulo")
-today_br = datetime.now(BRAZIL_TZ).date()
-
-# Constants
 SHOPS = ["Main Shop", "Second Shop"]
-
-# Standardized database keys for payment methods (always saved in Portuguese for DB consistency)
-PAYMENT_KEYS = [
-    "Dinheiro",
-    "Pix",
-    "Débito",
-    "Crédito à Vista",
-    "Crédito Parcelado",
-]
-
-PAYMENT_LABELS = {
-    "E": {
-        "Dinheiro": "Cash",
-        "Pix": "Pix",
-        "Débito": "Debit Card",
-        "Crédito à Vista": "Credit Card (1x)",
-        "Crédito Parcelado": "Credit Card (Installments)",
-    },
-    "P": {
-        "Dinheiro": "Dinheiro",
-        "Pix": "Pix",
-        "Débito": "Débito",
-        "Crédito à Vista": "Crédito à Vista",
-        "Crédito Parcelado": "Crédito Parcelado",
-    },
+PAY_KEYS = ["Dinheiro", "Pix", "Débito", "Crédito à Vista", "Crédito Parcelado"]
+PAY_LABELS = {
+    "E": {"Dinheiro": "Cash", "Pix": "Pix", "Débito": "Debit Card", "Crédito à Vista": "Credit Card (1x)", "Crédito Parcelado": "Credit Card (Installments)"},
+    "P": {"Dinheiro": "Dinheiro", "Pix": "Pix", "Débito": "Débito", "Crédito à Vista": "Crédito à Vista", "Crédito Parcelado": "Crédito Parcelado"},
 }
 
-# Bilingual UI Dictionary
-TEXT = {
+T = {
     "E": {
-        "title": "🛒 Multi-Shop POS Billing System",
-        "select_shop": "Select Shop",
-        "sale_date": "POS Sale Date (Brazil Time)",
-        "add_products_header": "1. Add Products to Cart",
-        "prod_code": "Product Code",
-        "prod_code_ph": "Enter code...",
-        "qty": "Quantity",
-        "add_item_btn": "Add Item",
-        "warn_enter_code": "Please enter a valid product code.",
-        "added_msg": "Added {qty}x {name} to cart.",
-        "not_found_msg": "Product code '{code}' not found in database.",
-        "current_cart": "Current Cart",
-        "cart_cols": ["Code", "Product Name", "Unit Price", "Qty", "Total"],
-        "clear_cart": "🗑️ Clear Cart",
-        "empty_cart": "Cart is currently empty.",
-        "checkout_header": "2. Checkout & Payment",
-        "subtotal": "Subtotal",
-        "discount": "Discount (Whole Integer)",
-        "total_bill": "Total Bill",
-        "payment_method": "Payment Method",
-        "installments": "Installments (Parcelas)",
-        "cash_given": "Cash Given",
-        "change_label": "Change (Troco): R$ {amt:,}",
-        "insufficient_cash": "Insufficient Cash! Missing: R$ {amt:,}",
-        "complete_sale_btn": "✅ Complete & Save Sale",
-        "err_empty_cart": "Cannot complete sale: Cart is empty.",
-        "err_less_cash": "Cash given is less than the total bill.",
-        "sale_saved": "Sale recorded successfully!",
-        "sale_failed": "Failed to save sale to Supabase.",
-        "db_error": "Database error: {err}",
-        "summary_header": "📊 Sales Summary & Reports — {shop}",
-        "start_date": "Start Date",
-        "end_date": "End Date",
-        "this_month_btn": "📅 Select Full Current Month",
-        "err_date_range": "Start Date cannot be after End Date.",
-        "grand_total": "Grand Total",
-        "tx_count": "Transactions",
-        "tx_log": "Transactions & Sold Items Log",
-        "export_header": "Export Data",
-        "download_csv": "📥 Download Filtered Sales CSV",
-        "delete_header": "Delete Entry",
-        "delete_id_label": "Sale ID to Delete",
-        "delete_btn": "🗑️ Delete Sale",
-        "deleted_ok": "Sale ID {id} deleted.",
-        "delete_not_found": "Sale ID {id} not found for {shop}.",
-        "delete_err": "Error deleting sale: {err}",
-        "eod_header": "End of Day & Email Report",
-        "daily_report_btn": "📧 Send Daily Report Email",
-        "monthly_report_btn": "📆 Send Monthly Report Email",
-        "err_no_webhook": "MAKE_WEBHOOK_URL is not configured in st.secrets.",
-        "webhook_ok": "{type} report sent successfully to webhook!",
-        "webhook_fail": "Webhook returned status {code}: {text}",
-        "webhook_err": "Failed to send report: {err}",
-        "no_sales": "No sales recorded for {shop} between {start} and {end}.",
+        "title": "🛒 Multi-Shop POS System", "shop": "Select Shop", "date": "POS Sale Date (Brazil)",
+        "add_hdr": "1. Add Products", "code": "Product Code", "qty": "Qty", "add_btn": "Add Item",
+        "not_found": "Product '{c}' not found.", "cart_hdr": "Current Cart", "clear": "🗑️ Clear Cart",
+        "empty": "Cart is empty.", "cols": ["Code", "Product", "Price", "Qty", "Total"], "rm_item": "Remove Item",
+        "pay_hdr": "2. Checkout & Payment", "sub": "Subtotal", "disc": "Discount (Integer)",
+        "tot": "Total Bill", "pm": "Payment Method", "inst": "Installments (Parcelas)",
+        "cash": "Cash Given", "troco": "Change (Troco): R$ {v:,}", "low_cash": "Missing: R$ {v:,}",
+        "save_btn": "✅ Complete & Save Sale", "saved": "Sale saved!", "err_cart": "Cart is empty.",
+        "hist_hdr": "📊 Sales History & Reports — {s}", "s_date": "Start Date", "e_date": "End Date",
+        "month_btn": "📅 Full Current Month", "grand": "Grand Total", "csv": "📥 Download CSV",
+        "del_id": "Sale ID", "del_btn": "🗑️ Delete Bill", "del_ok": "Sale #{id} deleted.",
+        "del_no": "Sale #{id} not found.", "rep_hdr": "📧 End of Day / Month Email Report",
+        "d_rep": "📧 Send Daily Report", "m_rep": "📆 Send Monthly Report",
+        "rep_ok": "{t} report sent!", "no_hook": "MAKE_WEBHOOK_URL missing in secrets.", "no_sales": "No sales found.",
     },
     "P": {
-        "title": "🛒 Sistema PDV Multi-Lojas",
-        "select_shop": "Selecionar Loja",
-        "sale_date": "Data da Venda PDV (Horário de Brasília)",
-        "add_products_header": "1. Adicionar Produtos ao Carrinho",
-        "prod_code": "Código do Produto",
-        "prod_code_ph": "Digite o código...",
-        "qty": "Quantidade",
-        "add_item_btn": "Adicionar Item",
-        "warn_enter_code": "Por favor, digite um código de produto válido.",
-        "added_msg": "Adicionado {qty}x {name} ao carrinho.",
-        "not_found_msg": "Código de produto '{code}' não encontrado no banco de dados.",
-        "current_cart": "Carrinho Atual",
-        "cart_cols": ["Código", "Produto", "Preço Unit.", "Qtd", "Total"],
-        "clear_cart": "🗑️ Limpar Carrinho",
-        "empty_cart": "O carrinho está vazio.",
-        "checkout_header": "2. Finalizar Venda e Pagamento",
-        "subtotal": "Subtotal",
-        "discount": "Desconto (Valor Inteiro)",
-        "total_bill": "Total da Conta",
-        "payment_method": "Forma de Pagamento",
-        "installments": "Parcelas",
-        "cash_given": "Valor Recebido em Dinheiro",
-        "change_label": "Troco: R$ {amt:,}",
-        "insufficient_cash": "Valor insuficiente! Faltam: R$ {amt:,}",
-        "complete_sale_btn": "✅ Finalizar e Salvar Venda",
-        "err_empty_cart": "Não é possível finalizar: o carrinho está vazio.",
-        "err_less_cash": "O valor recebido é menor que o total da conta.",
-        "sale_saved": "Venda registrada com sucesso!",
-        "sale_failed": "Falha ao salvar a venda no Supabase.",
-        "db_error": "Erro no banco de dados: {err}",
-        "summary_header": "📊 Resumo de Vendas e Relatórios — {shop}",
-        "start_date": "Data Inicial",
-        "end_date": "Data Final",
-        "this_month_btn": "📅 Selecionar Mês Atual Completo",
-        "err_date_range": "A Data Inicial não pode ser maior que a Data Final.",
-        "grand_total": "Total Geral",
-        "tx_count": "Transações",
-        "tx_log": "Histórico de Vendas e Itens Vendidos",
-        "export_header": "Exportar Dados",
-        "download_csv": "📥 Baixar CSV de Vendas",
-        "delete_header": "Excluir Lançamento",
-        "delete_id_label": "ID da Venda para Excluir",
-        "delete_btn": "🗑️ Excluir Venda",
-        "deleted_ok": "Venda ID {id} excluída.",
-        "delete_not_found": "Venda ID {id} não encontrada para {shop}.",
-        "delete_err": "Erro ao excluir venda: {err}",
-        "eod_header": "Fechamento e Relatório por E-mail",
-        "daily_report_btn": "📧 Enviar Relatório Diário (E-mail)",
-        "monthly_report_btn": "📆 Enviar Relatório Mensal (E-mail)",
-        "err_no_webhook": "MAKE_WEBHOOK_URL não está configurado em st.secrets.",
-        "webhook_ok": "Relatório ({type}) enviado com sucesso!",
-        "webhook_fail": "O webhook retornou status {code}: {text}",
-        "webhook_err": "Falha ao enviar relatório: {err}",
-        "no_sales": "Nenhuma venda registrada para {shop} entre {start} e {end}.",
+        "title": "🛒 Sistema PDV Multi-Lojas", "shop": "Selecionar Loja", "date": "Data da Venda (Brasil)",
+        "add_hdr": "1. Adicionar Produtos", "code": "Código do Produto", "qty": "Qtd", "add_btn": "Adicionar",
+        "not_found": "Produto '{c}' não encontrado.", "cart_hdr": "Carrinho Atual", "clear": "🗑️ Limpar Carrinho",
+        "empty": "Carrinho vazio.", "cols": ["Código", "Produto", "Preço", "Qtd", "Total"], "rm_item": "Remover Item",
+        "pay_hdr": "2. Finalizar e Pagamento", "sub": "Subtotal", "disc": "Desconto (Inteiro)",
+        "tot": "Total da Conta", "pm": "Forma de Pagamento", "inst": "Parcelas",
+        "cash": "Valor Recebido", "troco": "Troco: R$ {v:,}", "low_cash": "Faltam: R$ {v:,}",
+        "save_btn": "✅ Finalizar e Salvar Venda", "saved": "Venda salva!", "err_cart": "Carrinho vazio.",
+        "hist_hdr": "📊 Histórico e Relatórios — {s}", "s_date": "Data Inicial", "e_date": "Data Final",
+        "month_btn": "📅 Mês Atual Completo", "grand": "Total Geral", "csv": "📥 Baixar CSV",
+        "del_id": "ID Venda", "del_btn": "🗑️ Excluir Venda", "del_ok": "Venda #{id} excluída.",
+        "del_no": "Venda #{id} não encontrada.", "rep_hdr": "📧 Relatório por E-mail (Dia / Mês)",
+        "d_rep": "📧 Send Daily Report", "m_rep": "📆 Send Monthly Report",
+        "rep_ok": "Relatório ({t}) enviado!", "no_hook": "MAKE_WEBHOOK_URL ausente nos secrets.", "no_sales": "Nenhuma venda encontrada.",
     },
 }
 
 lang = st.session_state.lang
-t = TEXT[lang]
+t = T[lang]
 
-# --- TOP HEADER & LANGUAGE TOGGLE ("E" / "P") ---
-head_col1, head_col2 = st.columns([5, 1])
-with head_col1:
-    st.title(t["title"])
-with head_col2:
-    st.write("")  # Vertical alignment
-    lang_col1, lang_col2 = st.columns(2)
-    with lang_col1:
-        if st.button(
-            "E",
-            type="primary" if lang == "E" else "secondary",
-            use_container_width=True,
-            help="English",
-        ):
-            st.session_state.lang = "E"
-            st.rerun()
-    with lang_col2:
-        if st.button(
-            "P",
-            type="primary" if lang == "P" else "secondary",
-            use_container_width=True,
-            help="Português",
-        ):
-            st.session_state.lang = "P"
-            st.rerun()
+# --- TOP BAR: TITLE & LANGUAGE TOGGLE ("E" / "P") ---
+h1, h2, h3 = st.columns([6, 0.6, 0.6])
+h1.title(t["title"])
+if h2.button("E", type="primary" if lang == "E" else "secondary", use_container_width=True):
+    st.session_state.lang = "E"
+    st.rerun()
+if h3.button("P", type="primary" if lang == "P" else "secondary", use_container_width=True):
+    st.session_state.lang = "P"
+    st.rerun()
 
-# Top Shop & POS Date Selectors
-top_col1, top_col2 = st.columns(2)
-with top_col1:
-    selected_shop = st.selectbox(t["select_shop"], SHOPS)
-with top_col2:
-    pos_date = st.date_input(t["sale_date"], value=today_br)
-
+c_shop, c_date = st.columns(2)
+shop = c_shop.selectbox(t["shop"], SHOPS)
+pos_date = c_date.date_input(t["date"], value=today_br)
 pos_date_str = pos_date.strftime("%Y-%m-%d")
 st.divider()
 
-# --- BILLING & CHECKOUT SECTION ---
-left_col, right_col = st.columns([1.3, 1], gap="large")
+# --- BILLING & CHECKOUT ---
+col_left, col_right = st.columns([1.3, 1], gap="large")
 
-with left_col:
-    st.subheader(t["add_products_header"])
+with col_left:
+    st.subheader(t["add_hdr"])
+    with st.form("add_form", clear_on_submit=True):
+        f1, f2, f3 = st.columns([2, 1, 1.2])
+        p_code = f1.text_input(t["code"])
+        p_qty = f2.number_input(t["qty"], min_value=1, step=1, value=1)
+        f3.write(""); f3.write("")
+        submitted = f3.form_submit_button(t["add_btn"], use_container_width=True)
 
-    with st.form("add_product_form", clear_on_submit=True):
-        p_col1, p_col2, p_col3 = st.columns([2, 1, 1.2])
-        with p_col1:
-            prod_code = st.text_input(t["prod_code"], placeholder=t["prod_code_ph"])
-        with p_col2:
-            prod_qty = st.number_input(t["qty"], min_value=1, step=1, value=1)
-        with p_col3:
-            st.write("")
-            st.write("")
-            add_submitted = st.form_submit_button(t["add_item_btn"], use_container_width=True)
-
-    if add_submitted:
-        if not prod_code.strip():
-            st.warning(t["warn_enter_code"])
+    if submitted and p_code.strip():
+        prod = get_product_by_code(p_code.strip())
+        if prod:
+            price, qty = int(prod["price"]), int(p_qty)
+            existing = next((i for i in st.session_state.cart if i["code"] == prod["code"]), None)
+            if existing:
+                existing["qty"] += qty
+                existing["total"] = existing["qty"] * price
+            else:
+                st.session_state.cart.append({"code": prod["code"], "name": prod["name"], "price": price, "qty": qty, "total": price * qty})
         else:
-            product = get_product_by_code(prod_code)
-            if product:
-                unit_price = int(product["price"])
-                qty_int = int(prod_qty)
-                line_total = unit_price * qty_int
+            st.error(t["not_found"].format(c=p_code))
 
-                existing_item = next(
-                    (item for item in st.session_state.cart if item["code"] == product["code"]),
-                    None,
-                )
-                if existing_item:
-                    existing_item["qty"] += qty_int
-                    existing_item["total"] = existing_item["qty"] * existing_item["price"]
-                else:
-                    st.session_state.cart.append(
-                        {
-                            "code": product["code"],
-                            "name": product["name"],
-                            "price": unit_price,
-                            "qty": qty_int,
+    st.subheader(t["cart_hdr"])
+    if st.session_state.cart:
+        df_cart = pd.DataFrame(st.session_state.cart)
+        df_cart.columns = t["cols"]
+        st.dataframe(df_cart, use_container_width=True, hide_index=True)
+        rm1, rm2, rm3 = st.columns([2, 1, 1])
+        rm_code = rm1.selectbox(t["rm_item"], [i["code"] for i in st.session_state.cart], label_visibility="collapsed")
+        if rm2.button(f"❌ {t['rm_item']}", use_container_width=True):
+            st.session_state.cart = [i for i in st.session_state.cart if i["code"] != rm_code]
+            st.rerun()
+        if rm3.button(t["clear"], use_container_width=True):
+            st.session_state.cart = []
+            st.rerun()
+    else:
+        st.info(t["empty"])
+
+with col_right:
+    st.subheader(t["pay_hdr"])
+    subtotal = int(sum(i["total"] for i in st.session_state.cart))
+    st.metric(t["sub"], f"R$ {subtotal:,}")
+    discount = int(st.number_input(t["disc"], min_value=0, max_value=max(0, subtotal), step=1, value=0))
+    total_bill = int(max(0, subtotal - discount))
+    st.metric(t["tot"], f"R$ {total_bill:,}")
+
+    pay_key = st.selectbox(t["pm"], PAY_KEYS, format_func=lambda k: PAY_LABELS[lang][k])
+    installments = int(st.number_input(t["inst"], min_value=2, max_value=24, step=1, value=2)) if pay_key == "Crédito Parcelado" else 1
+    cash_given = total_bill
+    if pay_key == "Dinheiro":
+        cash_given = int(st.number_input(t["cash"], min_value=0, step=1, value=total_bill))
+        troco = cash_given - total_bill
+        st.success(t["troco"].format(v=troco)) if troco >= 0 else st.error(t["low_cash"].format(v=abs(troco)))
+
+    if st.button(t["save_btn"], type="primary", use_container_width=True):
+        if not st.session_state.cart:
+            st.error(t["err_cart"])
+        elif pay_key == "Dinheiro" and cash_given < total_bill:
+            st.error(t["low_cash"].format(v=total_bill - cash_given))
+        else:
+            summary = ", ".join(f"{i['qty']}x {i['name']} ({i['code']})" for i in st.session_state.cart)
+            payload = {
+                "sale_date": pos_date_str, "shop_name": shop, "items_summary": summary,
+                "subtotal": subtotal, "discount": discount, "total_bill": total_bill,
+                "payment_method": pay_key, "installments": installments,
+            }
+            if insert_sale(payload):
+                st.session_state.cart = []
+                st.success(t["saved"])
+                st.rerun()
+
+st.divider()
+
+# --- SALES HISTORY, FILTERS & EMAIL REPORTS ---
+st.header(t["hist_hdr"].format(s=shop))
+r1, r2, r3 = st.columns([1, 1, 1.2])
+start_d = r1.date_input(t["s_date"], key="f_start")
+end_d = r2.date_input(t["e_date"], key="f_end")
+r3.write(""); r3.write("")
+if r3.button(t["month_btn"], use_container_width=True):
+    st.session_state.f_start = today_br.replace(day=1)
+    st.session_state.f_end = today_br.replace(day=calendar.monthrange(today_br.year, today_br.month)[1])
+    st.rerun()
+
+s_str, e_str = start_d.strftime("%Y-%m-%d"), end_d.strftime("%Y-%m-%d")
+sales = get_sales_by_date_range(s_str, e_str, shop)
+
+if sales:
+    df_sales = pd.DataFrame(sales)
+    totals = {k: sum(int(r["total_bill"]) for r in sales if r.get("payment_method") == k) for k in PAY_KEYS}
+    m_cols = st.columns(6)
+    for idx, k in enumerate(PAY_KEYS):
+        m_cols[idx].metric(PAY_LABELS[lang][k], f"R$ {totals[k]:,}")
+    m_cols[5].metric(t["grand"], f"R$ {sum(totals.values()):,}")
+
+    df_view = df_sales.copy()
+    df_view["payment_method"] = df_view["payment_method"].map(lambda k: PAY_LABELS[lang].get(k, k))
+    st.dataframe(df_view, use_container_width=True, hide_index=True)
+else:
+    st.info(t["no_sales"])
+
+a1, a2, a3 = st.columns([1, 1.1, 1.5], gap="medium")
+with a1:
+    csv_bytes = pd.DataFrame(sales).to_csv(index=False).encode("utf-8") if sales else b""
+    st.download_button(t["csv"], data=csv_bytes, file_name=f"sales_{shop}_{s_str}_{e_str}.csv", mime="text/csv", disabled=not sales, use_container_width=True)
+
+with a2:
+    d1, d2 = st.columns([1, 1.2])
+    del_id = d1.number_input(t["del_id"], min_value=1, step=1, label_visibility="collapsed")
+    if d2.button(t["del_btn"], use_container_width=True):
+        if delete_sale_by_id(int(del_id), shop):
+            st.success(t["del_ok"].format(id=del_id)); st.rerun()
+        else:
+            st.warning(t["del_no"].format(id=del_id))
+
+with a3:
+    def trigger_webhook(rep_type: str, period: str, records: list):
+webhook_url = st.secrets.get("MAKE_WEBHOOK_URL", "")
+        if not webhook_url:
+            st.warning("Webhook URL not set")
+            return
+        if not records:
+            st.info(t["no_sales"])
+            return
+        payload = {
+            "report_type": rep_type,
+            "period": period,
+            "shop": shop,
+            "total_sales": int(sum(int(r["total_bill"]) for r in records)),
+            "transactions_count": len(records)
+        }
+        requests.post(webhook_url, json=payload)
+        st.success("Report Sent!")
+
+    if a3.button("📧 Daily Report", use_container_width=True):
+        trigger_webhook("daily", f"{s_str} to {e_str}", sales)
+
+    m_start = today_br.replace(day=1)
+    m_last_day = calendar.monthrange(today_br.year, today_br.month)[1]
+    m_end = today_br.replace(day=m_last_day)
+    if a3.button("📅 Monthly Report", use_container_width=True):
+        m_sales = get_sales_by_date_range(str(m_start), str(m_end), shop)
+        trigger_webhook("monthly", f"{m_start} to {m_end}", m_sales)
 
