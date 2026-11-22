@@ -195,7 +195,7 @@ with a2:
 
 with a3:
     def trigger_webhook(rep_type: str, period: str, records: list):
-    webhook_url = st.secrets.get("MAKE_WEBHOOK_URL", "")
+        webhook_url = st.secrets.get("MAKE_WEBHOOK_URL", "")
             if not webhook_url:
                 st.warning("Webhook URL not set")
                 return
