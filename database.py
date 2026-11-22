@@ -15,7 +15,7 @@ def get_product_by_code(code: str) -> Optional[Dict[str, Any]]:
     clean_code = str(code).strip()
     if not clean_code:
         return None
-    
+
     response = (
         supabase.table("products")
         .select("*")
@@ -32,21 +32,23 @@ def insert_sale(sale_data: Dict[str, Any]) -> bool:
     response = supabase.table("sales").insert(sale_data).execute()
     return bool(response.data)
 
-def get_daily_sales(sale_date: str, shop_name: str) -> List[Dict[str, Any]]:
-    """Retrieves all sales for a given date (YYYY-MM-DD) and shop."""
+def get_sales_by_date_range(start_date: str, end_date: str, shop_name: str) -> List[Dict[str, Any]]:
+    """Retrieves all sales between start_date and end_date (inclusive, YYYY-MM-DD) for a shop."""
     supabase = init_supabase()
     response = (
         supabase.table("sales")
         .select("*")
-        .eq("sale_date", sale_date)
+        .gte("sale_date", start_date)
+        .lte("sale_date", end_date)
         .eq("shop_name", shop_name)
+        .order("sale_date", desc=True)
         .order("id", desc=True)
         .execute()
     )
     return response.data if response.data else []
 
 def delete_sale_by_id(sale_id: int, shop_name: str) -> bool:
-    """Deletes a sale by its ID, restricted to the currently selected shop for safety."""
+    """Deletes a sale by its ID, restricted to the currently selected shop."""
     supabase = init_supabase()
     response = (
         supabase.table("sales")
@@ -56,3 +58,4 @@ def delete_sale_by_id(sale_id: int, shop_name: str) -> bool:
         .execute()
     )
     return bool(response.data)
+
