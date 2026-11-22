@@ -195,30 +195,30 @@ with a2:
 
 with a3:
     def trigger_webhook(rep_type: str, period: str, records: list):
-webhook_url = st.secrets.get("MAKE_WEBHOOK_URL", "")
-        if not webhook_url:
-            st.warning("Webhook URL not set")
-            return
-        if not records:
-            st.info(t["no_sales"])
-            return
-        payload = {
-            "report_type": rep_type,
-            "period": period,
-            "shop": shop,
-            "total_sales": int(sum(int(r["total_bill"]) for r in records)),
-            "transactions_count": len(records)
-        }
-        requests.post(webhook_url, json=payload)
-        st.success("Report Sent!")
-
-    if a3.button("📧 Daily Report", use_container_width=True):
-        trigger_webhook("daily", f"{s_str} to {e_str}", sales)
-
-    m_start = today_br.replace(day=1)
-    m_last_day = calendar.monthrange(today_br.year, today_br.month)[1]
-    m_end = today_br.replace(day=m_last_day)
-    if a3.button("📅 Monthly Report", use_container_width=True):
-        m_sales = get_sales_by_date_range(str(m_start), str(m_end), shop)
-        trigger_webhook("monthly", f"{m_start} to {m_end}", m_sales)
-
+    webhook_url = st.secrets.get("MAKE_WEBHOOK_URL", "")
+            if not webhook_url:
+                st.warning("Webhook URL not set")
+                return
+            if not records:
+                st.info(t["no_sales"])
+                return
+            payload = {
+                "report_type": rep_type,
+                "period": period,
+                "shop": shop,
+                "total_sales": int(sum(int(r["total_bill"]) for r in records)),
+                "transactions_count": len(records)
+            }
+            requests.post(webhook_url, json=payload)
+            st.success("Report Sent!")
+    
+        if a3.button("📧 Daily Report", use_container_width=True):
+            trigger_webhook("daily", f"{s_str} to {e_str}", sales)
+    
+        m_start = today_br.replace(day=1)
+        m_last_day = calendar.monthrange(today_br.year, today_br.month)[1]
+        m_end = today_br.replace(day=m_last_day)
+        if a3.button("📅 Monthly Report", use_container_width=True):
+            m_sales = get_sales_by_date_range(str(m_start), str(m_end), shop)
+            trigger_webhook("monthly", f"{m_start} to {m_end}", m_sales)
+    
