@@ -236,3 +236,99 @@ def open_ai_manager_dialog(shop_name: str):
                     if not new_email or "@" not in new_email:
                         st.error("Please enter a valid email address.")
                     elif len(new_password) < 6:
+                        st.error("Password must be at least 6 characters.")
+                    elif new_password != confirm_password:
+                        st.error("Passwords do not match.")
+                    else:
+                        otp = str(random.randint(100000, 999999))
+                        ok, msg = _send_email(new_email, "AI Manager Verification OTP", f"Your 6-digit verification code is: {otp}")
+                        if ok:
+                            st.session_state.ai_mgr_pending_signup = {
+                                "email": new_email,
+                                "password_hash": _hash_password(new_password),
+                                "otp": otp,
+                                "expires": datetime.utcnow() + timedelta(minutes=10),
+                            }
+                            st.success(f"OTP sent to {new_email}!")
+                            st.rerun()
+                        else:
+                            st.error(msg)
+        else:
+            pdata = st.session_state.ai_mgr_pending_signup
+            st.info(f"Enter the 6-digit OTP sent to *{pdata['email']}*")
+            with st.form("ai_mgr_otp_form"):
+                user_otp = st.text_input("6-Digit OTP", max_chars=6).strip()
+                c_ver, c_can = st.columns(2)
+                verify_btn = c_ver.form_submit_button("Verify & Create Account", type="primary", use_container_width=True)
+                cancel_btn = c_can.form_submit_button("Cancel", use_container_width=True)
+
+            if verify_btn:
+                if user_otp == pdata["otp"]:
+                    db.save_store_settings(email=pdata["email"], password_hash=pdata["password_hash"])
+                    st.session_state.ai_mgr_authenticated = True
+                    st.session_state.ai_mgr_email = pdata["email"]
+                    st.session_state.ai_mgr_pending_signup = None
+                    st.success("Account verified!")
+                    st.rerun()
+                else:
+                    st.error("Invalid OTP code.")
+            if cancel_btn:
+                st.session_state.ai_mgr_pending_signup = None
+                st.rerun()
+        return
+
+    email = st.session_state.ai_mgr_email
+    c_top1, c_top2 = st.columns([3, 1])
+    c_top1.caption(f"Owner: *{email}* | Store: *{shop_name}*")
+    if c_top2.button("Logout", use_container_width=True):
+        st.session_state.ai_mgr_authenticated = False
+        st.session_state.ai_mgr_email = ""
+        st.rerun()
+
+    tab_chat, tab_expenses, tab_reports = st.tabs(["🤖 AI Consultant", "💸 Shop Expenses", "📧 Daily & Monthly Reports"])
+
+    with tab_chat:
+        lang = st.selectbox("Language / ভাষা / Idioma", ["Bengali", "English", "Portuguese"])
+        metrics = _get_sales_metrics(shop_name, email, days=1)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Today Sales", f"{metrics['total_revenue']}")
+        m2.metric("Daily Fixed Cost", f"{metrics['total_expenses']}")
+        m3.metric("Net Profit", f"{metrics['net_profit']}")
+
+        for msg in st.session_state.ai_mgr_chat:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        if user_q := st.chat_input("Ask about profit, expenses, or business growth..."):
+            st.session_state.ai_mgr_chat.append({"role": "user", "content": user_q})
+            with st.chat_message("user"):
+                st.write(user_q)
+            with st.chat_message("assistant"):
+                reply = _generate_ai_advice(shop_name, metrics, user_q, lang)
+                st.write(reply)
+                st.session_state.ai_mgr_chat.append({"role": "assistant", "content": reply})
+
+    with tab_expenses:
+        curr = _get_sales_metrics(shop_name, email, days=1)
+        with st.form("expense_form"):
+            inp_rent = st.number_input("Daily Shop Rent (Whole Integer)", min_value=0, value=int(curr["daily_rent"]), step=1)
+            inp_staff = st.number_input("Daily Staff + Electricity + Water Cost (Whole Integer)", min_value=0, value=int(curr["daily_staff"]), step=1)
+            inp_wa = st.text_input("Owner WhatsApp Number", value=curr["whatsapp"])
+            if st.form_submit_button("Save Shop Expenses", type="primary"):
+                db.save_store_settings(email=email, whatsapp=inp_wa, daily_rent=int(inp_rent), daily_staff_cost=int(inp_staff))
+                st.success("Expenses updated!")
+                st.rerun()
+
+    with tab_reports:
+        rep_lang = st.selectbox("Report Language", ["Bengali", "English", "Portuguese"], key="rep_lang")
+        if st.button("📩 Send Today's AI Summary to Email", use_container_width=True):
+            m_day = _get_sales_metrics(shop_name, email, days=1)
+            rep_text = _generate_executive_report(shop_name, m_day, "Daily", rep_lang)
+            ok, msg = _send_email(email, f"Daily AI Report - {shop_name}", rep_text)
+            st.success(msg) if ok else st.error(msg)
+
+        if st.button("📊 Send 30-Day Monthly AI Summary to Email", use_container_width=True):
+            m_mon = _get_sales_metrics(shop_name, email, days=30)
+            rep_text = _generate_executive_report(shop_name, m_mon, "Monthly (30 Days)", rep_lang)
+            ok, msg = _send_email(email, f"Monthly AI Report - {shop_name}", rep_text)
+            st.success(msg) if ok else st.error(msg)
