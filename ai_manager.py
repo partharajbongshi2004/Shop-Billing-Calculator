@@ -254,28 +254,28 @@ def open_ai_manager_dialog(shop_name: str):
                         else:
                             st.error(msg)
         else:
-            pdata = st.session_state.ai_mgr_pending_signup
-            st.info(f"Enter the 6-digit OTP sent to *{pdata['email']}*")
-            with st.form("ai_mgr_otp_form"):
-                user_otp = st.text_input("6-Digit OTP", max_chars=6).strip()
-                c_ver, c_can = st.columns(2)
-                verify_btn = c_ver.form_submit_button("Verify & Create Account", type="primary", use_container_width=True)
-                cancel_btn = c_can.form_submit_button("Cancel", use_container_width=True)
-
-            if verify_btn:
-                if user_otp == pdata["otp"]:
-                    db.save_store_settings(email=pdata["email"], password_hash=pdata["password_hash"])
-                    st.session_state.ai_mgr_authenticated = True
-                    st.session_state.ai_mgr_email = pdata["email"]
+                pdata = st.session_state.ai_mgr_pending_signup
+                st.info(f"Enter the 6-digit OTP sent to *{pdata['email']}*")
+                with st.form("ai_mgr_otp_form"):
+                    user_otp = st.text_input("6-Digit OTP", max_chars=6).strip()
+                    c_ver, c_can = st.columns(2)
+                    verify_btn = c_ver.form_submit_button("Verify & Create Account", type="primary", use_container_width=True)
+                    cancel_btn = c_can.form_submit_button("Cancel", use_container_width=True)
+    
+                if verify_btn:
+                    if user_otp == pdata["otp"]:
+                        db.save_store_settings(email=pdata["email"], password_hash=pdata["password_hash"])
+                        st.session_state.ai_mgr_authenticated = True
+                        st.session_state.ai_mgr_email = pdata["email"]
+                        st.session_state.ai_mgr_pending_signup = None
+                        st.success("Account verified!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid OTP code.")
+                if cancel_btn:
                     st.session_state.ai_mgr_pending_signup = None
-                    st.success("Account verified!")
                     st.rerun()
-                else:
-                    st.error("Invalid OTP code.")
-            if cancel_btn:
-                st.session_state.ai_mgr_pending_signup = None
-                st.rerun()
-        return
+            return
 
     email = st.session_state.ai_mgr_email
     c_top1, c_top2 = st.columns([3, 1])
