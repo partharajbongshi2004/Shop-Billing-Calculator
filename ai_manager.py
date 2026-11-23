@@ -40,7 +40,7 @@ def get_monthly_sales_data(shop_name: str):
         .execute()
     )
     return res.data if res.data else []
-def ask_business_ai(user_question: str, financial_context: str) -> str:
+ def ask_business_ai(user_question: str, financial_context: str) -> str:
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
         system_instruction = f"""
@@ -65,7 +65,7 @@ def ask_business_ai(user_question: str, financial_context: str) -> str:
         return response.text
     except Exception as e:
         return f"AI Connection Error: {e}"
-      @st.dialog("✨ AI Business Manager", width="large")
+    @st.dialog("✨ AI Business Manager", width="large")
 def open_ai_manager_dialog(shop_name: str):
     if "ai_verified_email" not in st.session_state:
         st.session_state.ai_verified_email = None
