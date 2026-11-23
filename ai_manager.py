@@ -8,10 +8,9 @@ from datetime import datetime, date
 from google import genai
 from google.genai import types
 import database as db
-
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
-  def send_email_notification(to_email: str, subject: str, body: str) -> bool:
+def send_email_notification(to_email: str, subject: str, body: str) -> bool:
     try:
         sender_email = st.secrets["SENDER_EMAIL"]
         sender_password = st.secrets["SENDER_APP_PASSWORD"]
@@ -27,7 +26,7 @@ def hash_password(password: str) -> str:
     except Exception as e:
         st.error(f"Email Error: {e}")
         return False
-      def get_monthly_sales_data(shop_name: str):
+def get_monthly_sales_data(shop_name: str):
     supabase = db.init_supabase()
     today = date.today()
     first_day = today.replace(day=1).strftime("%Y-%m-%d")
