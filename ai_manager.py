@@ -105,15 +105,15 @@ def open_ai_manager_dialog(shop_name: str):
                         st.rerun()
                     else:
                         st.error("Invalid code!")
-                      with tab_login:
-            log_email = st.text_input("Registered Email", key="log_email").strip().lower()
-            if st.button("Access AI Manager", type="primary", use_container_width=True):
-                if db.get_store_settings(log_email):
-                    st.session_state.ai_verified_email = log_email
-                    st.rerun()
+                          with tab_login:
+                log_email = st.text_input("Registered Email", key="log_email").strip().lower()
+                if st.button("Access AI Manager", type="primary", use_container_width=True):
+                    if db.get_store_settings(log_email):
+                        st.session_state.ai_verified_email = log_email
+                        st.rerun()
                 else:
-                    st.error("Email not found! Please create an account first.")
-        return
+                        st.error("Email not found! Please create an account first.")
+            return
 
     owner_email = st.session_state.ai_verified_email
     settings = db.get_store_settings(owner_email) or {}
@@ -124,7 +124,7 @@ def open_ai_manager_dialog(shop_name: str):
         st.rerun()
 tab_chat, tab_expenses, tab_reports = st.tabs(["🤖 AI Consultant", "💸 Shop Expenses", "📧 Reports"])
     today_records = db.get_today_sales_summary(shop_name).get("sales_records", [])
-    today_rev = sum(int(i.get("total_amount", i.get("price", 0))) for i in today_records)
+    today_rev = sum(int(i.get("total_bill", i.get("price", 0))) for i in today_records)
     monthly_rev = sum(int(i.get("total_amount", i.get("price", 0))) for i in get_monthly_sales_data(shop_name))
 
     daily_rent = int(settings.get("daily_rent", 0))
