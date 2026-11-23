@@ -59,3 +59,48 @@ def delete_sale_by_id(sale_id: int, shop_name: str) -> bool:
     )
     return bool(response.data)
 
+from datetime import date
+
+def save_store_settings(email: str, whatsapp: str = "", daily_rent: int = 0, daily_staff_cost: int = 0) -> bool:
+    """Saves or updates owner email, WhatsApp, and daily store expenses."""
+    supabase = init_supabase()
+    clean_email = str(email).strip().lower()
+    if not clean_email:
+        return False
+    
+    data = {
+        "owner_email": clean_email,
+        "whatsapp_number": str(whatsapp).strip(),
+        "daily_rent": int(daily_rent),
+        "daily_staff_cost": int(daily_staff_cost)
+    }
+    response = supabase.table("store_settings").upsert(data, on_conflict="owner_email").execute()
+    return bool(response.data)
+
+def get_store_settings(email: str) -> Optional[Dict[str, Any]]:
+    """Fetches store settings and expenses for a verified owner email."""
+    supabase = init_supabase()
+    clean_email = str(email).strip().lower()
+    response = supabase.table("store_settings").select("*").eq("owner_email", clean_email).execute()
+    if response.data and len(response.data) > 0:
+        return response.data[0]
+    return None
+
+def get_today_sales_summary(shop_name: str) -> Dict[str, Any]:
+    """Fetches today's sales list for the AI Manager to analyze profit and trends."""
+    supabase = init_supabase()
+    today_str = str(date.today())
+    response = (
+        supabase.table("sales")
+        .select("*")
+        .eq("sale_date", today_str)
+        .eq("shop_name", shop_name)
+        .execute()
+    )
+    sales_list = response.data if response.data else []
+    return {
+        "date": today_str,
+        "shop_name": shop_name,
+        "total_bills": len(sales_list),
+        "sales_records": sales_list
+    }
