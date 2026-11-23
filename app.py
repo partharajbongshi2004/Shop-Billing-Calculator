@@ -4,6 +4,7 @@ import requests
 import calendar
 from datetime import datetime
 import pytz
+import ai_manager
 from database import get_product_by_code, insert_sale, get_sales_by_date_range, delete_sale_by_id
 
 st.set_page_config(page_title="Multi-Shop POS", page_icon="🛒", layout="wide")
@@ -74,7 +75,10 @@ shop = c_shop.selectbox(t["shop"], SHOPS)
 pos_date = c_date.date_input(t["date"], value=today_br)
 pos_date_str = pos_date.strftime("%Y-%m-%d")
 st.divider()
-
+_, ai_col = st.columns([5.5, 1.5])
+with ai_col:
+    if st.button("✨ AI Manager", type="primary", use_container_width=True):
+        ai_manager.open_ai_manager_dialog(shop)
 # --- BILLING & CHECKOUT ---
 col_left, col_right = st.columns([1.3, 1], gap="large")
 
