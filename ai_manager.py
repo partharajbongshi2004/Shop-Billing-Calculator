@@ -224,7 +224,7 @@ def open_ai_manager_dialog(shop_name: str):
                     except Exception as e:
                         st.error(f"Database login error: {str(e)}")
 
-        with signup_tab:
+       with signup_tab:
             if st.session_state.ai_mgr_pending_signup is None:
                 with st.form("ai_mgr_signup_form"):
                     new_email = st.text_input("Owner Email", placeholder="owner@example.com").strip().lower()
@@ -253,7 +253,7 @@ def open_ai_manager_dialog(shop_name: str):
                             st.rerun()
                         else:
                             st.error(msg)
-        else:
+            else:
                 pdata = st.session_state.ai_mgr_pending_signup
                 st.info(f"Enter the 6-digit OTP sent to *{pdata['email']}*")
                 with st.form("ai_mgr_otp_form"):
@@ -261,7 +261,7 @@ def open_ai_manager_dialog(shop_name: str):
                     c_ver, c_can = st.columns(2)
                     verify_btn = c_ver.form_submit_button("Verify & Create Account", type="primary", use_container_width=True)
                     cancel_btn = c_can.form_submit_button("Cancel", use_container_width=True)
-    
+
                 if verify_btn:
                     if user_otp == pdata["otp"]:
                         db.save_store_settings(email=pdata["email"], password_hash=pdata["password_hash"])
