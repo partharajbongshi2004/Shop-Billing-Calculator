@@ -105,7 +105,7 @@ def open_ai_manager_dialog(shop_name: str):
                         st.rerun()
                     else:
                         st.error("Invalid code!")
-                          with tab_login:
+                        with tab_login:
                 log_email = st.text_input("Registered Email", key="log_email").strip().lower()
                 if st.button("Access AI Manager", type="primary", use_container_width=True):
                     if db.get_store_settings(log_email):
