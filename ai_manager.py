@@ -224,76 +224,76 @@ def open_ai_manager_dialog(shop_name: str):
                     except Exception as e:
                         st.error(f"Database login error: {str(e)}")
 
-             with signup_tab:
-            if st.session_state.ai_mgr_pending_signup is None:
-                with st.form("ai_mgr_signup_form"):
-                    new_email = st.text_input("Owner Email", placeholder="owner@example.com").strip().lower()
-                    new_password = st.text_input("Create Password", type="password")
-                    confirm_password = st.text_input("Confirm Password", type="password")
-                    send_otp_btn = st.form_submit_button("Send 6-Digit Verification OTP", use_container_width=True)
-
-                if send_otp_btn:
-                    if not new_email or "@" not in new_email:
-                        st.error("Please enter a valid email address.")
-                    elif len(new_password) < 6:
-                        st.error("Password must be at least 6 characters long.")
-                    elif new_password != confirm_password:
-                        st.error("Passwords do not match.")
-                    else:
-                        otp_code = f"{random.randint(100000, 999999)}"
-                        subject = f"{shop_name} - Your 6-Digit AI Business Manager OTP"
-                        body = (
-                            f"Hello,\n\n"
-                            f"Your 6-digit verification code for {shop_name} AI Business Manager is: {otp_code}\n\n"
-                            f"If you did not request this code, please ignore this email."
-                        )
-                        sent, msg = _send_email(new_email, subject, body)
-                        if sent:
-                            st.session_state.ai_mgr_pending_signup = {
-                                "email": new_email,
-                                "password_hash": _hash_password(new_password),
-                                "otp": otp_code,
-                            }
-                            st.success(f"A 6-digit OTP has been sent to {new_email}.")
-                            st.rerun()
+                 with signup_tab:
+                if st.session_state.ai_mgr_pending_signup is None:
+                    with st.form("ai_mgr_signup_form"):
+                        new_email = st.text_input("Owner Email", placeholder="owner@example.com").strip().lower()
+                        new_password = st.text_input("Create Password", type="password")
+                        confirm_password = st.text_input("Confirm Password", type="password")
+                        send_otp_btn = st.form_submit_button("Send 6-Digit Verification OTP", use_container_width=True)
+    
+                    if send_otp_btn:
+                        if not new_email or "@" not in new_email:
+                            st.error("Please enter a valid email address.")
+                        elif len(new_password) < 6:
+                            st.error("Password must be at least 6 characters long.")
+                        elif new_password != confirm_password:
+                            st.error("Passwords do not match.")
                         else:
-                            st.error(msg)
-            else:
-                pending = st.session_state.ai_mgr_pending_signup
-                st.info(f"Enter the 6-digit OTP sent to **{pending['email']}**")
-                with st.form("ai_mgr_verify_otp_form"):
-                    entered_otp = st.text_input("6-Digit OTP", max_chars=6).strip()
-                    col1, col2 = st.columns(2)
-                    verify_btn = col1.form_submit_button("Verify & Create Account", use_container_width=True)
-                    cancel_btn = col2.form_submit_button("Cancel", use_container_width=True)
-
-                if cancel_btn:
-                    st.session_state.ai_mgr_pending_signup = None
-                    st.rerun()
-
-                if verify_btn:
-                    if entered_otp == pending["otp"]:
-                        try:
-                            supabase = db.init_supabase()
-                            supabase.table("store_owners").upsert(
-                                {
-                                    "email": pending["email"],
-                                    "shop_name": shop_name,
-                                    "password_hash": pending["password_hash"],
-                                    "verified": True,
+                            otp_code = f"{random.randint(100000, 999999)}"
+                            subject = f"{shop_name} - Your 6-Digit AI Business Manager OTP"
+                            body = (
+                                f"Hello,\n\n"
+                                f"Your 6-digit verification code for {shop_name} AI Business Manager is: {otp_code}\n\n"
+                                f"If you did not request this code, please ignore this email."
+                            )
+                            sent, msg = _send_email(new_email, subject, body)
+                            if sent:
+                                st.session_state.ai_mgr_pending_signup = {
+                                    "email": new_email,
+                                    "password_hash": _hash_password(new_password),
+                                    "otp": otp_code,
                                 }
-                            ).execute()
-                            db.save_store_settings(pending["email"], "", 0, 0)
-                            st.session_state.ai_mgr_authenticated = True
-                            st.session_state.ai_mgr_email = pending["email"]
-                            st.session_state.ai_mgr_pending_signup = None
-                            st.success("Account verified and created!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error saving account: {str(e)}")
-                    else:
-                        st.error("Invalid 6-digit OTP. Please try again.")
-
+                                st.success(f"A 6-digit OTP has been sent to {new_email}.")
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                else:
+                    pending = st.session_state.ai_mgr_pending_signup
+                    st.info(f"Enter the 6-digit OTP sent to **{pending['email']}**")
+                    with st.form("ai_mgr_verify_otp_form"):
+                        entered_otp = st.text_input("6-Digit OTP", max_chars=6).strip()
+                        col1, col2 = st.columns(2)
+                        verify_btn = col1.form_submit_button("Verify & Create Account", use_container_width=True)
+                        cancel_btn = col2.form_submit_button("Cancel", use_container_width=True)
+    
+                    if cancel_btn:
+                        st.session_state.ai_mgr_pending_signup = None
+                        st.rerun()
+    
+                    if verify_btn:
+                        if entered_otp == pending["otp"]:
+                            try:
+                                supabase = db.init_supabase()
+                                supabase.table("store_owners").upsert(
+                                    {
+                                        "email": pending["email"],
+                                        "shop_name": shop_name,
+                                        "password_hash": pending["password_hash"],
+                                        "verified": True,
+                                    }
+                                ).execute()
+                                db.save_store_settings(pending["email"], "", 0, 0)
+                                st.session_state.ai_mgr_authenticated = True
+                                st.session_state.ai_mgr_email = pending["email"]
+                                st.session_state.ai_mgr_pending_signup = None
+                                st.success("Account verified and created!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error saving account: {str(e)}")
+                        else:
+                            st.error("Invalid 6-digit OTP. Please try again.")
+                            
             return
 
     email = st.session_state.ai_mgr_email
