@@ -79,10 +79,10 @@ def open_ai_manager_dialog(shop_name: str):
     if not st.session_state.ai_verified_email:
         tab_login, tab_register = st.tabs(["🔑 Login", "📝 Create Account"])
         with tab_register:
-            reg_name = st.text_input("Owner Name", key="reg_name")
-            reg_email = st.text_input("Email Address", key="reg_email").strip().lower()
-            reg_pass = st.text_input("Password", type="password", key="reg_pass")
-            reg_whatsapp = st.text_input("WhatsApp Number", key="reg_wa")
+        reg_name = st.text_input("Owner Name", key="reg_name")
+        reg_email = st.text_input("Email Address", key="reg_email").strip().lower()
+        reg_pass = st.text_input("Password", type="password", key="reg_pass")
+        reg_whatsapp = st.text_input("WhatsApp Number", key="reg_wa")
           if st.button("Send Verification Code", use_container_width=True):
                 if reg_name and reg_email and reg_pass:
                     otp = str(random.randint(100000, 999999))
