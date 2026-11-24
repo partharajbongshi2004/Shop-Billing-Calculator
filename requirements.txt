@@ -3,4 +3,6 @@ supabase>=2.4.0
 pandas>=2.2.0
 requests>=2.31.0
 pytz>=2024.1
-google-genai
+google-genai>=1.0.0
+extra-streamlit-components>=0.1.71
+
