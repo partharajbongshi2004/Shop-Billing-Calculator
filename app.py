@@ -75,10 +75,14 @@ shop = c_shop.selectbox(t["shop"], SHOPS)
 pos_date = c_date.date_input(t["date"], value=today_br)
 pos_date_str = pos_date.strftime("%Y-%m-%d")
 st.divider()
-_, ai_col = st.columns([5.5, 1.5])
-with ai_col:
-    if st.button("✨ AI Manager", type="primary", use_container_width=True):
-        ai_manager.open_ai_manager_dialog(shop)
+ai_col = st.columns([5.5, 1.5])
+with ai_col[1]:
+    if st.button("🤖 AI Manager", type="primary", use_container_width=True):
+        st.session_state["show_ai_mgr"] = not st.session_state.get("show_ai_mgr", False)
+
+if st.session_state.get("show_ai_mgr", False):
+    ai_manager.render_ai_manager(shop, lang)
+    st.divider()
 # --- BILLING & CHECKOUT ---
 col_left, col_right = st.columns([1.3, 1], gap="large")
 
