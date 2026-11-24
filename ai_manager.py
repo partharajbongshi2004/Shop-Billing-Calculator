@@ -182,22 +182,29 @@ LIVE STORE FINANCIAL SNAPSHOT ({today_br}):
 """.strip()
 
     def ask_gemini(user_msg: str) -> str:
-        client = genai.Client(api_key=api_key)
-        history_text = "\n".join(
-            f"{'Owner' if m['role'] == 'user' else 'Manager'}: {m['content']}"
-            for m in st.session_state.ai_chat[-6:]
-        )
-        full_prompt = f"{history_text}\nOwner: {user_msg}" if history_text else user_msg
-        resp = client.models.generate_content(
-            model="gemini-3.0-flash",
-            contents=full_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0.4,
-            ),
-        )
-        return resp.text
-
+        try:
+            client = genai.Client(api_key=api_key)
+            history_text = "\n".join(
+                f"{'Owner' if m['role'] == 'user' else 'Manager'}: {m['content']}"
+                for m in st.session_state.ai_chat[-6:]
+            )
+            full_prompt = f"{history_text}\nOwner: {user_msg}" if history_text else user_msg
+            active_model = next(
+                (m.name for m in client.models.list() if "flash" in m.name and "generateContent" in (m.supported_actions or [])),
+                "gemini-2.0-flash"
+            )
+            resp = client.models.generate_content(
+                model=active_model,
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.4,
+                ),
+            )
+            return resp.text
+        except Exception as e:
+            return f"⚠️ AI Error: {e}"
+    
     if st.button(L["quick_btn"], type="primary"):
         audit_q = (
             "Analyze my current daily, monthly, and yearly net profit, break-even point, and give 3 high-impact scaling actions."
