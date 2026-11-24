@@ -139,7 +139,7 @@ def render_ai_manager(shop: str, lang: str):
         staff = int(c5.number_input(L["staff"], min_value=0, value=3200, step=100))
 
     monthly_fixed = int(rent + water + elec + staff)
-    days_in_month = calendar.monthrange(today_br.year, today_br.month)
+    days_in_month = calendar.monthrange(today_br.year, today_br.month)[1]
     daily_fixed = int(round(monthly_fixed / days_in_month))
     yearly_fixed = int(monthly_fixed * 12)
 
