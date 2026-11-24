@@ -37,7 +37,7 @@ def _compute_financials(shop: str, ref_date) -> dict:
     """Computes live Daily, Monthly, and Yearly revenue & integer Net Profit in R$."""
     d_str = ref_date.strftime("%Y-%m-%d")
     m_start = ref_date.replace(day=1).strftime("%Y-%m-%d")
-    m_end = ref_date.replace(day=calendar.monthrange(ref_date.year, ref_date.month)).strftime("%Y-%m-%d")
+    m_end = ref_date.replace(day=calendar.monthrange(ref_date.year, ref_date.month)[1]).strftime("%Y-%m-%d")
     y_start = f"{ref_date.year}-01-01"
     y_end = f"{ref_date.year}-12-31"
 
