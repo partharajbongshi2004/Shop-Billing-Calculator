@@ -191,7 +191,7 @@ LIVE STORE FINANCIAL SNAPSHOT ({today_br}):
             full_prompt = f"{history_text}\nOwner: {user_msg}" if history_text else user_msg
             active_model = next(
                 (m.name for m in client.models.list() if "flash" in m.name and "generateContent" in (m.supported_actions or [])),
-                "gemini-3.8-flash"
+                "gemini-3.5-flash-lite"
             )
             resp = client.models.generate_content(
                 model=active_model,
