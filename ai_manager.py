@@ -1,353 +1,224 @@
 import hashlib
-import random
-import smtplib
-from datetime import datetime, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import calendar
+from datetime import datetime
+import pytz
 import streamlit as st
+import extra_streamlit_components as stx
 from google import genai
 from google.genai import types
-import database as db
+from database import init_supabase, get_sales_by_date_range
 
+def get_cookie_manager():
+    return stx.CookieManager(key="ai_mgr_cookies")
 
-def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
-
-def _send_email(recipient: str, subject: str, body: str) -> tuple[bool, str]:
+def _make_auth_token(email: str, password: str) -> str:
+    salt = st.secrets.get("SUPABASE_KEY", "pos_ai_salt")[:16]
+    return hashlib.sha256(f"{email.lower().strip()}:{password}:{salt}".encode()).hexdigest()
+def _fetch_stock_summary() -> tuple[int, str]:
+    """Reads live stock/products from Supabase safely."""
     try:
-        sender_email = st.secrets["SENDER_EMAIL"]
-        sender_password = st.secrets["SENDER_APP_PASSWORD"]
-    except KeyError as e:
-        return False, f"Missing secret key: {e}"
-
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = sender_email
-        msg["To"] = recipient
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain", "utf-8"))
-
-        with smtplib.SMTP_SSL("://gmail.com", 465) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, recipient, msg.as_string())
-        return True, "Email sent successfully."
+        sb = init_supabase()
+        res = sb.table("products").select("*").execute()
+        rows = res.data or []
+        if not rows:
+            return 0, "No products registered."
+        lines = []
+        total_units = 0
+        for r in rows:
+            qty = r.get("stock", r.get("quantity", "N/A"))
+            if isinstance(qty, int):
+                total_units += qty
+            lines.append(f"- {r.get('name')} (Code: {r.get('code')}): Price R$ {r.get('price')}, Stock: {qty}")
+        return total_units, "\n".join(lines[:40])
     except Exception as e:
-        return False, f"Failed to send email: {str(e)}"
+        return 0, f"Stock read note: {e}"
 
+def _compute_financials(shop: str, ref_date) -> dict:
+    """Computes live Daily, Monthly, and Yearly revenue & integer Net Profit in R$."""
+    d_str = ref_date.strftime("%Y-%m-%d")
+    m_start = ref_date.replace(day=1).strftime("%Y-%m-%d")
+    m_end = ref_date.replace(day=calendar.monthrange(ref_date.year, ref_date.month)).strftime("%Y-%m-%d")
+    y_start = f"{ref_date.year}-01-01"
+    y_end = f"{ref_date.year}-12-31"
 
-def _get_gemini_client():
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        return genai.Client(api_key=api_key)
-    except Exception:
-        return None
+    daily_sales = get_sales_by_date_range(d_str, d_str, shop)
+    monthly_sales = get_sales_by_date_range(m_start, m_end, shop)
+    yearly_sales = get_sales_by_date_range(y_start, y_end, shop)
 
+    d_rev = int(sum(int(x.get("total_bill", 0)) for x in daily_sales))
+    m_rev = int(sum(int(x.get("total_bill", 0)) for x in monthly_sales))
+    y_rev = int(sum(int(x.get("total_bill", 0)) for x in yearly_sales))
 
-def _get_sales_metrics(shop_name: str, email: str, days: int = 1) -> dict:
-    total_revenue = 0
-    total_orders = 0
-
-    if days == 1:
-        try:
-            summary = db.get_today_sales_summary(shop_name) or {}
-            total_revenue = int(round(float(summary.get("total_sales", summary.get("total_bill", 0)) or 0)))
-            total_orders = int(summary.get("total_orders", summary.get("count", 0)) or 0)
-        except Exception:
-            total_revenue = 0
-            total_orders = 0
-    else:
-        try:
-            supabase = db.init_supabase()
-            start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
-            response = (
-                supabase.table("sales")
-                .select("total_bill")
-                .eq("shop_name", shop_name)
-                .gte("created_at", start_date)
-                .execute()
-            )
-            rows = response.data or []
-            total_orders = len(rows)
-            total_revenue = int(round(sum(float(r.get("total_bill", 0) or 0) for r in rows)))
-        except Exception:
-            total_revenue = 0
-            total_orders = 0
-
-    try:
-        settings = db.get_store_settings(email) or {}
-    except Exception:
-        settings = {}
-
-    daily_rent = int(round(float(settings.get("daily_rent", 0) or 0)))
-    daily_staff = int(round(float(settings.get("daily_staff_cost", 0) or 0)))
-    whatsapp = str(settings.get("whatsapp", "") or "")
-
-    period_rent = int(daily_rent * days)
-    period_staff = int(daily_staff * days)
-    total_expenses = int(period_rent + period_staff)
-    gross_profit = int(round(total_revenue * 0.50))
-    net_profit = int(gross_profit - total_expenses)
+    d_units = max(len(daily_sales), round(d_rev / 30)) if d_rev > 0 else 0
+    m_units = max(len(monthly_sales), round(m_rev / 30)) if m_rev > 0 else 0
+    y_units = max(len(yearly_sales), round(y_rev / 30)) if y_rev > 0 else 0
 
     return {
-        "days": int(days),
-        "total_orders": int(total_orders),
-        "total_revenue": int(total_revenue),
-        "gross_profit": int(gross_profit),
-        "daily_rent": int(daily_rent),
-        "daily_staff": int(daily_staff),
-        "period_rent": int(period_rent),
-        "period_staff": int(period_staff),
-        "total_expenses": int(total_expenses),
-        "net_profit": int(net_profit),
-        "whatsapp": whatsapp,
+        "d_rev": d_rev, "m_rev": m_rev, "y_rev": y_rev,
+        "d_tx": len(daily_sales), "m_tx": len(monthly_sales), "y_tx": len(yearly_sales),
+        "d_units": d_units, "m_units": m_units, "y_units": y_units,
     }
+def render_ai_manager(shop: str, lang: str):
+    """Renders the One-Time Login gate and the Live Business-Only AI Manager."""
+    cookies = get_cookie_manager()
+    st.session_state.setdefault("ai_logged_in", False)
+    st.session_state.setdefault("ai_user_email", "")
+    st.session_state.setdefault("ai_chat", [])
 
+    saved_token = cookies.get("ai_mgr_token")
+    saved_email = cookies.get("ai_mgr_email")
+    if saved_token and saved_email:
+        st.session_state.ai_logged_in = True
+        st.session_state.ai_user_email = saved_email
 
-def _generate_ai_advice(shop_name: str, metrics: dict, user_question: str, language: str) -> str:
-    client = _get_gemini_client()
-    if not client:
-        return "Error: GEMINI_API_KEY is missing or invalid in st.secrets."
+    L = {
+        "E": {
+            "hdr": "🤖 AI Business Manager & Global Strategist",
+            "login_sub": "One-Time Manager Access (Remembered Automatically)",
+            "email": "Manager Email", "pw": "Password", "login_btn": "Unlock AI Manager",
+            "login_err": "Please enter a valid email and password (min 4 chars).",
+            "fixed_hdr": "Monthly Fixed Costs & Unit Cost (R$ Integers)",
+            "buy_cost": "Avg Buying Cost / Unit (R$)", "rent": "Shop Rent / Month (R$)",
+            "water": "Water Bill / Month (R$)", "elec": "Electricity Bill / Month (R$)",
+            "staff": "Staff Salaries / Month (R$)", "d_net": "Daily Net Profit",
+            "m_net": "Monthly Net Profit", "y_net": "Yearly Net Profit",
+            "rev_lbl": "Revenue: R$ {r:,} ({tx} sales)",
+            "chat_hdr": "Executive Strategy Chat (Business Topics Only)",
+            "chat_ph": "Ask about profit margins, stock, pricing, or global expansion...",
+            "quick_btn": "📊 Run Full Profit & Growth Audit Now",
+            "no_key": "GEMINI_API_KEY is missing in .streamlit/secrets.toml.",
+        },
+        "P": {
+            "hdr": "🤖 Gerente Executivo de IA & Estrategista Global",
+            "login_sub": "Acesso Único do Gerente (Salvo Automaticamente)",
+            "email": "E-mail do Gerente", "pw": "Senha", "login_btn": "Desbloquear Gerente IA",
+            "login_err": "Digite um e-mail válido e senha (mínimo 4 caracteres).",
+            "fixed_hdr": "Custos Fixos Mensais e Custo Unitário (R$ Inteiros)",
+            "buy_cost": "Custo Médio Compra / Unid. (R$)", "rent": "Aluguel da Loja / Mês (R$)",
+            "water": "Conta de Água / Mês (R$)", "elec": "Conta de Luz / Mês (R$)",
+            "staff": "Salários Equipe / Mês (R$)", "d_net": "Lucro Líquido Diário",
+            "m_net": "Lucro Líquido Mensal", "y_net": "Lucro Líquido Anual",
+            "rev_lbl": "Faturamento: R$ {r:,} ({tx} vendas)",
+            "chat_hdr": "Consultoria Executiva (Apenas Negócios)",
+            "chat_ph": "Pergunte sobre lucro, estoque, preços ou expansão global...",
+            "quick_btn": "📊 Gerar Auditoria Completa de Lucro e Crescimento",
+            "no_key": "GEMINI_API_KEY ausente em .streamlit/secrets.toml.",
+        },
+    }[lang]
 
-    system_instruction = (
-        f"You are an expert AI Retail Business Manager and Financial Consultant for '{shop_name}'. "
-        f"You MUST respond strictly in {language}. "
-        "CRITICAL RULE: Use ONLY whole integer numbers in your response (no decimals, no cents, no floating-point numbers). "
-        "Base all financial analysis strictly on the provided shop figures:\n"
-        f"- Total Orders Today: {metrics['total_orders']}\n"
-        f"- Total Sales Revenue (total_bill): {metrics['total_revenue']}\n"
-        f"- Gross Profit (50% of total_bill): {metrics['gross_profit']}\n"
-        f"- Daily Shop Rent: {metrics['daily_rent']}\n"
-        f"- Daily Staff & Utility Cost: {metrics['daily_staff']}\n"
-        f"- Total Daily Fixed Expenses: {metrics['total_expenses']}\n"
-        f"- Net Profit (Gross Profit minus Daily Expenses): {metrics['net_profit']}\n"
-        "Give practical, actionable, concise advice to improve profit margins, manage expenses, and boost sales."
-    )
+    st.header(L["hdr"])
 
-    try:
-        response = client.models.generate_content(
+    if not st.session_state.ai_logged_in:
+        with st.form("ai_one_time_login"):
+            st.subheader(L["login_sub"])
+            email_in = st.text_input(L["email"], placeholder="manager@shop.com")
+            pw_in = st.text_input(L["pw"], type="password")
+            if st.form_submit_button(L["login_btn"], type="primary"):
+                if "@" in email_in and len(pw_in.strip()) >= 4:
+                    token = _make_auth_token(email_in, pw_in)
+                    exp = datetime(2035, 12, 31)
+                    cookies.set("ai_mgr_token", token, expires_at=exp, key="set_tok")
+                    cookies.set("ai_mgr_email", email_in.strip(), expires_at=exp, key="set_em")
+                    st.session_state.ai_logged_in = True
+                    st.session_state.ai_user_email = email_in.strip()
+                    st.rerun()
+                else:
+                    st.error(L["login_err"])
+        return
+
+    today_br = datetime.now(pytz.timezone("America/Sao_Paulo")).date()
+    fin = _compute_financials(shop, today_br)
+    total_stock_units, stock_text = _fetch_stock_summary()
+
+    with st.expander(L["fixed_hdr"], expanded=True):
+        c1, c2, c3, c4, c5 = st.columns(5)
+        avg_buy = int(c1.number_input(L["buy_cost"], min_value=1, max_value=500, value=14, step=1))
+        rent = int(c2.number_input(L["rent"], min_value=0, value=2500, step=100))
+        water = int(c3.number_input(L["water"], min_value=0, value=180, step=10))
+        elec = int(c4.number_input(L["elec"], min_value=0, value=450, step=10))
+        staff = int(c5.number_input(L["staff"], min_value=0, value=3200, step=100))
+
+    monthly_fixed = int(rent + water + elec + staff)
+    days_in_month = calendar.monthrange(today_br.year, today_br.month)
+    daily_fixed = int(round(monthly_fixed / days_in_month))
+    yearly_fixed = int(monthly_fixed * 12)
+
+    d_cogs = int(fin["d_units"] * avg_buy)
+    m_cogs = int(fin["m_units"] * avg_buy)
+    y_cogs = int(fin["y_units"] * avg_buy)
+
+    d_net = int(fin["d_rev"] - d_cogs - daily_fixed)
+    m_net = int(fin["m_rev"] - m_cogs - monthly_fixed)
+    y_net = int(fin["y_rev"] - y_cogs - yearly_fixed)
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric(L["d_net"], f"R$ {d_net:,}", delta=L["rev_lbl"].format(r=fin["d_rev"], tx=fin["d_tx"]))
+    k2.metric(L["m_net"], f"R$ {m_net:,}", delta=L["rev_lbl"].format(r=fin["m_rev"], tx=fin["m_tx"]))
+    k3.metric(L["y_net"], f"R$ {y_net:,}", delta=L["rev_lbl"].format(r=fin["y_rev"], tx=fin["y_tx"]))
+
+    st.divider()
+    st.subheader(L["chat_hdr"])
+    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not api_key:
+        st.error(L["no_key"])
+        return
+
+    target_lang = "English" if lang == "E" else "Portuguese (Português do Brasil)"
+    system_prompt = f"""
+You are a seasoned, real-world Executive Business Manager and Global Market Strategist advising the owner of '{shop}' in Brazil.
+STRICT RULES:
+1. Respond EXCLUSIVELY in {target_lang}. Never switch to any other language.
+2. Act strictly as a sharp, practical human business executive—never mention being an AI or language model.
+3. Discuss ONLY business, retail operations, profit/loss, pricing, inventory, cash flow, and global/local market scaling strategies. If the user asks about anything non-business (sports, movies, casual trivia, coding, politics, personal life, etc.), politely decline in 1 sentence and redirect back to store profitability.
+4. Always use whole-integer R$ values in your financial breakdowns.
+
+LIVE STORE FINANCIAL SNAPSHOT ({today_br}):
+- Shop: {shop}
+- Daily Revenue: R$ {fin['d_rev']:,} ({fin['d_tx']} sales) | Daily COGS: R$ {d_cogs:,} | Daily Fixed Prorated: R$ {daily_fixed:,} | Daily Net Profit: R$ {d_net:,}
+- Monthly Revenue: R$ {fin['m_rev']:,} ({fin['m_tx']} sales) | Monthly COGS: R$ {m_cogs:,} | Monthly Fixed Costs: R$ {monthly_fixed:,} (Rent R$ {rent:,}, Water R$ {water:,}, Electricity R$ {elec:,}, Staff R$ {staff:,}) | Monthly Net Profit: R$ {m_net:,}
+- Yearly Revenue: R$ {fin['y_rev']:,} ({fin['y_tx']} sales) | Yearly COGS: R$ {y_cogs:,} | Yearly Fixed Costs: R$ {yearly_fixed:,} | Yearly Net Profit: R$ {y_net:,}
+- Unit Economics Assumption: Avg Sale ~R$ 30, Avg Buying Cost R$ {avg_buy}
+- Live Catalog & Stock:\n{stock_text}
+""".strip()
+
+    def ask_gemini(user_msg: str) -> str:
+        client = genai.Client(api_key=api_key)
+        history_text = "\n".join(
+            f"{'Owner' if m['role'] == 'user' else 'Manager'}: {m['content']}"
+            for m in st.session_state.ai_chat[-6:]
+        )
+        full_prompt = f"{history_text}\nOwner: {user_msg}" if history_text else user_msg
+        resp = client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=user_question,
+            contents=full_prompt,
             config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
+                system_instruction=system_prompt,
                 temperature=0.4,
             ),
         )
-        return response.text or "No response generated."
-    except Exception as e:
-        return f"AI Consultant Error: {str(e)}"
+        return resp.text
 
-
-def _generate_ai_report(shop_name: str, metrics: dict, period_label: str) -> str:
-    client = _get_gemini_client()
-    summary_header = (
-        f"=== {shop_name.upper()} - {period_label.upper()} BUSINESS REPORT ===\n"
-        f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-        f"Total Orders: {metrics['total_orders']}\n"
-        f"Total Revenue: {metrics['total_revenue']}\n"
-        f"Gross Profit (50%): {metrics['gross_profit']}\n"
-        f"Rent Expense: {metrics['period_rent']}\n"
-        f"Staff & Utility Expense: {metrics['period_staff']}\n"
-        f"Total Expenses: {metrics['total_expenses']}\n"
-        f"Net Profit: {metrics['net_profit']}\n"
-        "==================================================\n\n"
-    )
-
-    if not client:
-        return summary_header + "AI Insights unavailable (missing GEMINI_API_KEY)."
-
-    prompt = (
-        f"Write a concise executive {period_label} retail performance summary and 3 actionable recommendations "
-        f"for shop '{shop_name}' using ONLY whole integer numbers (no decimals). "
-        f"Metrics: Orders={metrics['total_orders']}, Revenue={metrics['total_revenue']}, "
-        f"Gross Profit={metrics['gross_profit']}, Total Expenses={metrics['total_expenses']}, "
-        f"Net Profit={metrics['net_profit']}."
-    )
-
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.4),
+    if st.button(L["quick_btn"], type="primary"):
+        audit_q = (
+            "Analyze my current daily, monthly, and yearly net profit, break-even point, and give 3 high-impact scaling actions."
+            if lang == "E"
+            else "Analise meu lucro líquido diário, mensal e anual atual, ponto de equilíbrio e dê 3 ações práticas para escalar."
         )
-        ai_text = response.text or ""
-        return summary_header + ai_text
-    except Exception as e:
-        return summary_header + f"Could not generate AI commentary: {str(e)}"
-
-
-@st.dialog("✨ AI Business Manager", width="large")
-def open_ai_manager_dialog(shop_name: str):
-    if "ai_mgr_authenticated" not in st.session_state:
-        st.session_state.ai_mgr_authenticated = False
-    if "ai_mgr_email" not in st.session_state:
-        st.session_state.ai_mgr_email = ""
-    if "ai_mgr_chat" not in st.session_state:
-        st.session_state.ai_mgr_chat = []
-    if "ai_mgr_pending_signup" not in st.session_state:
-        st.session_state.ai_mgr_pending_signup = None
-
-    if not st.session_state.ai_mgr_authenticated:
-        st.caption(f"Store: **{shop_name}** | Owner Authentication")
-        login_tab, signup_tab = st.tabs(["🔐 Login", "📝 Create Account"])
-
-        with login_tab:
-            with st.form("ai_mgr_login_form"):
-                login_email = st.text_input("Owner Email", placeholder="owner@example.com").strip().lower()
-                login_password = st.text_input("Password", type="password")
-                login_submit = st.form_submit_button("Login", use_container_width=True)
-
-            if login_submit:
-                if not login_email or not login_password:
-                    st.error("Please enter both email and password.")
-                else:
-                    try:
-                        supabase = db.init_supabase()
-                        res = (
-                            supabase.table("store_owners")
-                            .select("*")
-                            .eq("email", login_email)
-                            .execute()
-                        )
-                        records = res.data or []
-                        if not records:
-                            st.error("No account found with this email.")
-                        else:
-                            user_row = records[0]
-                            stored_hash = user_row.get("password_hash", "")
-                            if stored_hash == _hash_password(login_password):
-                                st.session_state.ai_mgr_authenticated = True
-                                st.session_state.ai_mgr_email = login_email
-                                st.rerun()
-                            else:
-                                st.error("Incorrect password.")
-                    except Exception as e:
-                        st.error(f"Database login error: {str(e)}")
-
-                 with signup_tab:
-                if st.session_state.ai_mgr_pending_signup is None:
-                    with st.form("ai_mgr_signup_form"):
-                        new_email = st.text_input("Owner Email", placeholder="owner@example.com").strip().lower()
-                        new_password = st.text_input("Create Password", type="password")
-                        confirm_password = st.text_input("Confirm Password", type="password")
-                        send_otp_btn = st.form_submit_button("Send 6-Digit Verification OTP", use_container_width=True)
-    
-                    if send_otp_btn:
-                        if not new_email or "@" not in new_email:
-                            st.error("Please enter a valid email address.")
-                        elif len(new_password) < 6:
-                            st.error("Password must be at least 6 characters long.")
-                        elif new_password != confirm_password:
-                            st.error("Passwords do not match.")
-                        else:
-                            otp_code = f"{random.randint(100000, 999999)}"
-                            subject = f"{shop_name} - Your 6-Digit AI Business Manager OTP"
-                            body = (
-                                f"Hello,\n\n"
-                                f"Your 6-digit verification code for {shop_name} AI Business Manager is: {otp_code}\n\n"
-                                f"If you did not request this code, please ignore this email."
-                            )
-                            sent, msg = _send_email(new_email, subject, body)
-                            if sent:
-                                st.session_state.ai_mgr_pending_signup = {
-                                    "email": new_email,
-                                    "password_hash": _hash_password(new_password),
-                                    "otp": otp_code,
-                                }
-                                st.success(f"A 6-digit OTP has been sent to {new_email}.")
-                                st.rerun()
-                            else:
-                                st.error(msg)
-                else:
-                    pending = st.session_state.ai_mgr_pending_signup
-                    st.info(f"Enter the 6-digit OTP sent to **{pending['email']}**")
-                    with st.form("ai_mgr_verify_otp_form"):
-                        entered_otp = st.text_input("6-Digit OTP", max_chars=6).strip()
-                        col1, col2 = st.columns(2)
-                        verify_btn = col1.form_submit_button("Verify & Create Account", use_container_width=True)
-                        cancel_btn = col2.form_submit_button("Cancel", use_container_width=True)
-    
-                    if cancel_btn:
-                        st.session_state.ai_mgr_pending_signup = None
-                        st.rerun()
-    
-                    if verify_btn:
-                        if entered_otp == pending["otp"]:
-                            try:
-                                supabase = db.init_supabase()
-                                supabase.table("store_owners").upsert(
-                                    {
-                                        "email": pending["email"],
-                                        "shop_name": shop_name,
-                                        "password_hash": pending["password_hash"],
-                                        "verified": True,
-                                    }
-                                ).execute()
-                                db.save_store_settings(pending["email"], "", 0, 0)
-                                st.session_state.ai_mgr_authenticated = True
-                                st.session_state.ai_mgr_email = pending["email"]
-                                st.session_state.ai_mgr_pending_signup = None
-                                st.success("Account verified and created!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error saving account: {str(e)}")
-                        else:
-                            st.error("Invalid 6-digit OTP. Please try again.")
-                            
-            return
-
-    email = st.session_state.ai_mgr_email
-    c_top1, c_top2 = st.columns([3, 1])
-    c_top1.caption(f"Owner: *{email}* | Store: *{shop_name}*")
-    if c_top2.button("Logout", use_container_width=True):
-        st.session_state.ai_mgr_authenticated = False
-        st.session_state.ai_mgr_email = ""
+        st.session_state.ai_chat.append({"role": "user", "content": audit_q})
+        with st.spinner("..."):
+            st.session_state.ai_chat.append({"role": "assistant", "content": ask_gemini(audit_q)})
         st.rerun()
 
-    tab_chat, tab_expenses, tab_reports = st.tabs(["🤖 AI Consultant", "💸 Shop Expenses", "📧 Daily & Monthly Reports"])
+    for msg in st.session_state.ai_chat:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-    with tab_chat:
-        lang = st.selectbox("Language / ভাষা / Idioma", ["Bengali", "English", "Portuguese"])
-        metrics = _get_sales_metrics(shop_name, email, days=1)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Today Sales", f"{metrics['total_revenue']}")
-        m2.metric("Daily Fixed Cost", f"{metrics['total_expenses']}")
-        m3.metric("Net Profit", f"{metrics['net_profit']}")
-
-        for msg in st.session_state.ai_mgr_chat:
-            with st.chat_message(msg["role"]):
-                st.write(msg["content"])
-
-        if user_q := st.chat_input("Ask about profit, expenses, or business growth..."):
-            st.session_state.ai_mgr_chat.append({"role": "user", "content": user_q})
-            with st.chat_message("user"):
-                st.write(user_q)
-            with st.chat_message("assistant"):
-                reply = _generate_ai_advice(shop_name, metrics, user_q, lang)
-                st.write(reply)
-                st.session_state.ai_mgr_chat.append({"role": "assistant", "content": reply})
-
-    with tab_expenses:
-        curr = _get_sales_metrics(shop_name, email, days=1)
-        with st.form("expense_form"):
-            inp_rent = st.number_input("Daily Shop Rent (Whole Integer)", min_value=0, value=int(curr["daily_rent"]), step=1)
-            inp_staff = st.number_input("Daily Staff + Electricity + Water Cost (Whole Integer)", min_value=0, value=int(curr["daily_staff"]), step=1)
-            inp_wa = st.text_input("Owner WhatsApp Number", value=curr["whatsapp"])
-            if st.form_submit_button("Save Shop Expenses", type="primary"):
-                db.save_store_settings(email=email, whatsapp=inp_wa, daily_rent=int(inp_rent), daily_staff_cost=int(inp_staff))
-                st.success("Expenses updated!")
-                st.rerun()
-
-    with tab_reports:
-        rep_lang = st.selectbox("Report Language", ["Bengali", "English", "Portuguese"], key="rep_lang")
-        if st.button("📩 Send Today's AI Summary to Email", use_container_width=True):
-            m_day = _get_sales_metrics(shop_name, email, days=1)
-            rep_text = _generate_executive_report(shop_name, m_day, "Daily", rep_lang)
-            ok, msg = _send_email(email, f"Daily AI Report - {shop_name}", rep_text)
-            st.success(msg) if ok else st.error(msg)
-
-        if st.button("📊 Send 30-Day Monthly AI Summary to Email", use_container_width=True):
-            m_mon = _get_sales_metrics(shop_name, email, days=30)
-            rep_text = _generate_executive_report(shop_name, m_mon, "Monthly (30 Days)", rep_lang)
-            ok, msg = _send_email(email, f"Monthly AI Report - {shop_name}", rep_text)
-            st.success(msg) if ok else st.error(msg)
+    if prompt := st.chat_input(L["chat_ph"]):
+        st.session_state.ai_chat.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            with st.spinner("..."):
+                reply = ask_gemini(prompt)
+                st.markdown(reply)
+        st.session_state.ai_chat.append({"role": "assistant", "content": reply})
