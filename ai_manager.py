@@ -189,7 +189,7 @@ LIVE STORE FINANCIAL SNAPSHOT ({today_br}):
         )
         full_prompt = f"{history_text}\nOwner: {user_msg}" if history_text else user_msg
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.0-flash",
             contents=full_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
